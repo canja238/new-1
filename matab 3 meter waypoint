@@ -1,0 +1,220 @@
+classdef PathFollowingRobot < handle
+    properties
+        % Hardware Interface
+        SerialPort
+        
+        % Navigation Properties
+        Waypoints
+        CurrentWaypointIndex
+        FuzzySystem
+        Running
+        
+        % Thresholds (Modified)
+        PositionThreshold = 3 % meters (changed from 5)
+        HeadingThreshold = 15 % degrees
+        
+        % Visualization
+        MapFigure
+        PathPlot
+        RobotPlot
+        WaypointPlot
+        
+        % Logging
+        LogFile
+        LogData
+        LogStartTime
+        
+        % Performance Analysis
+        PerformanceFigure
+    end
+    
+    methods
+        function obj = PathFollowingRobot(portName)
+            % Initialize serial port
+            obj.SerialPort = serialport(portName, 115200);
+            configureTerminator(obj.SerialPort, "LF");
+            flush(obj.SerialPort);
+            
+            % Define waypoints (latitude, longitude)
+Waypoints = [
+    7.214900000, 124.249231000;  % Start (unchanged)
+    7.214902600, 124.249251037;  % ~3m from previous
+    7.214905200, 124.249271074;  % ~3m
+    7.214907800, 124.249291111;  % ~3m (original 5m point adjusted)
+    7.214910400, 124.249311148;  % ~3m
+    7.214913000, 124.249331185;  % ~3m (original 5m point adjusted)
+    7.214915600, 124.249351222;  % ~3m
+    7.214918200, 124.249371259;  % ~3m
+    7.214920800, 124.249391296;  % ~3m (original 5m point adjusted)
+    7.214923400, 124.249411333;  % ~3m
+    7.214926000, 124.249431370;  % ~3m
+    7.214928600, 124.249451407;  % ~3m (original 5m point adjusted)
+    7.214931200, 124.249471444;  % ~3m
+    7.214933800, 124.249491481;  % ~3m
+    7.214936400, 124.249511518;  % ~3m (original 5m point adjusted)
+    7.214939000, 124.249531555;  % ~3m
+    7.214941600, 124.249551592;  % ~3m
+    7.214944200, 124.249571629;  % ~3m (original 5m point adjusted)
+    7.214946800, 124.249591666;  % ~3m
+    7.214949400, 124.249611703;  % ~3m
+    7.214952000, 124.249631740;  % ~3m (original 5m point adjusted)
+    7.214954600, 124.249651777;  % ~3m
+    7.214957200, 124.249671814;  % ~3m
+    7.214959800, 124.249691851;  % ~3m (original 5m point adjusted)
+];
+            
+            obj.CurrentWaypointIndex = 1;
+            obj.Running = false;
+            
+            % Initialize logging system
+            obj.initializeLogging();
+            
+            % Initialize fuzzy logic controller
+            obj.initializeFuzzySystem();
+            
+            % Initialize visualization
+            obj.initializeMap();
+            
+            disp('Robot initialized with 3m waypoint threshold');
+        end
+        
+        function initializeLogging(obj)
+            % ... (same as before)
+        end
+        
+        function logData(obj, time, lat, lon, heading, targetLat, targetLon, ...
+                        xError, yError, headingError, distance, command)
+            % ... (same as before)
+        end
+        
+        function initializeFuzzySystem(obj)
+            % ... (same as before)
+        end
+        
+        function initializeMap(obj)
+            % ... (same as before)
+        end
+        
+        function updateMap(obj, currentLat, currentLon)
+            % ... (same as before)
+        end
+        
+        function plotPerformance(obj)
+            % ... (same as before)
+        end
+        
+        function start(obj)
+            obj.Running = true;
+            disp('Starting navigation with 3m precision...');
+            obj.run();
+        end
+        
+        function stop(obj)
+            obj.Running = false;
+            writeline(obj.SerialPort, "CMD:0,0");
+            disp('Navigation stopped');
+            obj.plotPerformance();
+            saveas(obj.MapFigure, strrep(obj.LogFile, '.csv', '_map.png'));
+        end
+        
+        function run(obj)
+            while obj.Running
+                if obj.SerialPort.NumBytesAvailable > 0
+                    data = readline(obj.SerialPort);
+                    
+                    if startsWith(data, "GPS:")
+                        try
+                            gpsData = sscanf(data, "GPS:%f,%f,%f,%f");
+                            if length(gpsData) == 4
+                                currentTime = datetime('now');
+                                currentLat = gpsData(1);
+                                currentLon = gpsData(2);
+                                heading = gpsData(4);
+                                
+                                % Update visualization
+                                obj.updateMap(currentLat, currentLon);
+                                
+                                % Get current target
+                                target = obj.Waypoints(obj.CurrentWaypointIndex, :);
+                                targetLat = target(1);
+                                targetLon = target(2);
+                                
+                                % Calculate errors
+                                [xError, yError] = obj.calculatePositionErrors(...
+                                    currentLat, currentLon, targetLat, targetLon);
+                                distance = obj.calculateDistance(...
+                                    currentLat, currentLon, targetLat, targetLon);
+                                bearing = obj.calculateBearing(...
+                                    currentLat, currentLon, targetLat, targetLon);
+                                headingError = obj.wrapTo180(bearing - heading);
+                                
+                                % Fuzzy logic control
+                                inputs = [xError, headingError];
+                                outputs = evalfis(obj.FuzzySystem, inputs);
+                                leftPWM = round(outputs(1));
+                                rightPWM = round(outputs(2));
+                                
+                                % Improved speed reduction near waypoints (quadratic scaling)
+                                if distance < 10
+                                    speedFactor = max(0.2, (distance/10)^2);
+                                    leftPWM = round(leftPWM * speedFactor);
+                                    rightPWM = round(rightPWM * speedFactor);
+                                end
+                                
+                                % Constrain PWM values
+                                leftPWM = max(-255, min(255, leftPWM));
+                                rightPWM = max(-255, min(255, rightPWM));
+                                
+                                % Log data
+                                obj.logData(currentTime, currentLat, currentLon, heading, ...
+                                           targetLat, targetLon, xError, yError, headingError, ...
+                                           distance, sprintf('%d,%d', leftPWM, rightPWM));
+                                
+                                % Check waypoint arrival with 3m threshold
+                                if distance < obj.PositionThreshold && abs(headingError) < obj.HeadingThreshold
+                                    if obj.CurrentWaypointIndex == size(obj.Waypoints, 1)
+                                        obj.stop();
+                                        return;
+                                    else
+                                        % Optional: Add brief stabilization pause
+                                        pause(0.3);
+                                        obj.CurrentWaypointIndex = obj.CurrentWaypointIndex + 1;
+                                        fprintf('Reached waypoint %d (3m precision)\n', obj.CurrentWaypointIndex-1);
+                                        continue;
+                                    end
+                                end
+                                
+                                % Send motor command
+                                cmdStr = sprintf("CMD:%d,%d", leftPWM, rightPWM);
+                                writeline(obj.SerialPort, cmdStr);
+                            end
+                        catch ME
+                            fprintf('Error processing GPS data: %s\n', ME.message);
+                        end
+                    end
+                end
+                pause(0.1);
+            end
+        end
+        
+        function [xError, yError] = calculatePositionErrors(obj, lat1, lon1, lat2, lon2)
+            % ... (same as before)
+        end
+        
+        function distance = calculateDistance(~, lat1, lon1, lat2, lon2)
+            % ... (same as before)
+        end
+        
+        function bearing = calculateBearing(~, lat1, lon1, lat2, lon2)
+            % ... (same as before)
+        end
+        
+        function angle = wrapTo180(~, angle)
+            % ... (same as before)
+        end
+        
+        function delete(obj)
+            % ... (same as before)
+        end
+    end
+end
