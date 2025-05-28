@@ -1,0 +1,32 @@
+#include <SoftwareSerial.h>
+
+#define HC12_RX_PIN 10
+#define HC12_TX_PIN 11
+SoftwareSerial HC12(HC12_RX_PIN, HC12_TX_PIN);
+
+void setup() {
+  Serial.begin(115200);
+  HC12.begin(9600);
+  pinMode(LED_BUILTIN, OUTPUT);
+}
+
+void loop() {
+  // Forward data from robot to computer
+  if (HC12.available()) {
+    String data = HC12.readStringUntil('\n');
+    if (data.startsWith("GPS:")) {
+      Serial.println(data);
+    }
+  }
+  
+  // Forward commands from computer to robot
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    if (cmd.startsWith("CMD:")) {
+      HC12.println(cmd);
+      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Blink LED
+    }
+  }
+  
+  delay(10);
+}
