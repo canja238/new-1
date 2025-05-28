@@ -1,0 +1,122 @@
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+
+TinyGPSPlus gps;
+#define GPS_SERIAL Serial1
+#define HC12_SERIAL Serial3
+
+// Motor pins
+const int ENA = 12;
+const int ENB = 13;
+const int IN1 = 8;
+const int IN2 = 9;
+const int IN3 = 11;
+const int IN4 = 10;
+
+struct MotorCommand {
+  int left;
+  int right;
+};
+MotorCommand currentCmd = {0, 0};
+unsigned long lastCmdTime = 0;
+const unsigned long CMD_TIMEOUT = 2000; // 2 seconds
+
+void setup() {
+  Serial.begin(115200);
+  GPS_SERIAL.begin(9600);
+  HC12_SERIAL.begin(9600);
+  
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  
+  stopMotors();
+  Serial.println("Robot Ready");
+}
+
+void loop() {
+  // Read GPS data
+  while (GPS_SERIAL.available() > 0) {
+    if (gps.encode(GPS_SERIAL.read())) {
+      if (gps.location.isValid()) {
+        sendGPSData();
+      }
+    }
+  }
+  
+  // Process commands
+  if (HC12_SERIAL.available() > 0) {
+    String cmd = HC12_SERIAL.readStringUntil('\n');
+    if (cmd.startsWith("CMD:")) {
+      parseCommand(cmd);
+      setMotors();
+      lastCmdTime = millis();
+    }
+  }
+  
+  // Safety stop if no commands
+  if (millis() - lastCmdTime > CMD_TIMEOUT) {
+    stopMotors();
+  }
+  
+  delay(50);
+}
+
+void sendGPSData() {
+  HC12_SERIAL.print("GPS:");
+  HC12_SERIAL.print(gps.location.lat(), 6);
+  HC12_SERIAL.print(",");
+  HC12_SERIAL.print(gps.location.lng(), 6);
+  HC12_SERIAL.print(",0,"); // Speed not used
+  HC12_SERIAL.println(gps.course.deg(), 1);
+}
+
+void parseCommand(String cmd) {
+  int comma = cmd.indexOf(',', 4);
+  if (comma != -1) {
+    currentCmd.left = cmd.substring(4, comma).toInt();
+    currentCmd.right = cmd.substring(comma + 1).toInt();
+  }
+}
+
+void setMotors() {
+  // Left motor
+  if (currentCmd.left > 0) {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+  } else if (currentCmd.left < 0) {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+  } else {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+  }
+  
+  // Right motor
+  if (currentCmd.right > 0) {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+  } else if (currentCmd.right < 0) {
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  } else {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+  }
+  
+  analogWrite(ENA, abs(currentCmd.left));
+  analogWrite(ENB, abs(currentCmd.right));
+}
+
+void stopMotors() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  currentCmd = {0, 0};
+}
