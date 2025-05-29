@@ -202,3 +202,17 @@ void executeMotorCommand() {
   DEBUG_PRINT(" R=");
   DEBUG_PRINTLN(rightPWM);
 }
+
+void stopMotors() {
+  // Set motor pins to low to stop the motors
+  digitalWrite(motorPin1, LOW);
+  digitalWrite(motorPin2, LOW);
+  digitalWrite(motorPin3, LOW);
+  digitalWrite(motorPin4, LOW);
+
+  // Set the PWM signals to 0 (turn off the motor drivers)
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  
+  DEBUG_PRINTLN("Motors stopped");
+}
