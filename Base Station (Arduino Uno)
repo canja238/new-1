@@ -2,29 +2,74 @@
 
 #define HC12_RX_PIN 10
 #define HC12_TX_PIN 11
-SoftwareSerial HC12(HC12_RX_PIN, HC12_TX_PIN);
+SoftwareSerial HC12_SERIAL(HC12_RX_PIN, HC12_TX_PIN);
+
+unsigned long gpsErrorCount = 0;
+unsigned long commandErrorCount = 0;
 
 void setup() {
   Serial.begin(115200);
-  HC12.begin(9600);
-  pinMode(LED_BUILTIN, OUTPUT);
+  HC12_SERIAL.begin(9600);
+  
+  pinMode(HC12_RX_PIN, INPUT);
+  pinMode(HC12_TX_PIN, OUTPUT);
+  
+  Serial.println("Base Station Ready");
 }
 
 void loop() {
-  // Forward data from robot to computer
-  if (HC12.available()) {
-    String data = HC12.readStringUntil('\n');
+  // Forward GPS data from robot to MATLAB
+  if (HC12_SERIAL.available()) {
+    String data = HC12_SERIAL.readStringUntil('\n');
+    data.trim();
+    
     if (data.startsWith("GPS:")) {
-      Serial.println(data);
+      // Count commas for validation
+      int commas = 0;
+      bool valid = true;
+      
+      for (int i = 0; i < data.length(); i++) {
+        if (data.charAt(i) == ',') commas++;
+        // Check for non-numeric characters where expected
+        if (i > 4 && i < data.length() - 1 && data.charAt(i) != ',' && 
+            data.charAt(i) != '.' && data.charAt(i) != '-' && !isDigit(data.charAt(i))) {
+          valid = false;
+        }
+      }
+      
+      if (valid && commas == 3) {
+        Serial.println(data);
+      } else {
+        gpsErrorCount++;
+        Serial.println("GPS:0,0,0,0"); // Send invalid data marker
+        if (gpsErrorCount % 10 == 0) {
+          Serial.print("GPS Error Count: ");
+          Serial.println(gpsErrorCount);
+        }
+      }
+    }
+    else if (data.startsWith("GPS:LOST")) {
+      Serial.println("GPS:LOST");
     }
   }
   
-  // Forward commands from computer to robot
+  // Forward commands from MATLAB to robot
   if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    if (cmd.startsWith("CMD:")) {
-      HC12.println(cmd);
-      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Blink LED
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    
+    if (command.startsWith("CMD:")) {
+      // Simple validation
+      int commaPos = command.indexOf(',');
+      if (commaPos != -1 && commaPos > 4 && commaPos < command.length() - 1) {
+        HC12_SERIAL.println(command);
+      } else {
+        commandErrorCount++;
+        if (commandErrorCount % 10 == 0) {
+          Serial.print("Command Error Count: ");
+          Serial.println(commandErrorCount);
+        }
+      }
     }
   }
   
