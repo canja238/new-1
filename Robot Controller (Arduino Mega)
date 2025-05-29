@@ -157,19 +157,28 @@ void parseMotorCommand(String command) {
 }
 
 void executeMotorCommand() {
+  // Debug output first
+  DEBUG_PRINT("Executing: L=");
+  DEBUG_PRINT(currentCommand.leftPWM);
+  DEBUG_PRINT(" R=");
+  DEBUG_PRINTLN(currentCommand.rightPWM);
+
   // Left motor
   if (currentCommand.leftPWM > 0) {
+    DEBUG_PRINTLN("Left motor FORWARD");
     digitalWrite(motorPin1, LOW);
     digitalWrite(motorPin2, HIGH);
   } else if (currentCommand.leftPWM < 0) {
+    DEBUG_PRINTLN("Left motor REVERSE");
     digitalWrite(motorPin1, HIGH);
     digitalWrite(motorPin2, LOW);
   } else {
+    DEBUG_PRINTLN("Left motor BRAKE");
     digitalWrite(motorPin1, HIGH);
     digitalWrite(motorPin2, HIGH);
   }
-  
-  // Right motor
+
+  // Right motor (same logic)
   if (currentCommand.rightPWM > 0) {
     digitalWrite(motorPin3, LOW);
     digitalWrite(motorPin4, HIGH);
@@ -180,21 +189,16 @@ void executeMotorCommand() {
     digitalWrite(motorPin3, HIGH);
     digitalWrite(motorPin4, HIGH);
   }
-  
-  analogWrite(ENA, constrain(abs(currentCommand.leftPWM) * 2.55, 0, 255));
-  analogWrite(ENB, constrain(abs(currentCommand.rightPWM) * 2.55, 0, 255));
-  
-  DEBUG_PRINT("Motors: L=");
-  DEBUG_PRINT(currentCommand.leftPWM);
-  DEBUG_PRINT(", R=");
-  DEBUG_PRINTLN(currentCommand.rightPWM);
-}
 
-void stopMotors() {
-  digitalWrite(motorPin1, HIGH);
-  digitalWrite(motorPin2, HIGH);
-  digitalWrite(motorPin3, HIGH);
-  digitalWrite(motorPin4, HIGH);
-  analogWrite(ENA, 0);
-  analogWrite(ENB, 0);
+  // Convert % to PWM value (0-255)
+  int leftPWM = map(abs(currentCommand.leftPWM), 0, 100, 0, 255);
+  int rightPWM = map(abs(currentCommand.rightPWM), 0, 100, 0, 255);
+  
+  analogWrite(ENA, leftPWM);
+  analogWrite(ENB, rightPWM);
+
+  DEBUG_PRINT("Final PWM: L=");
+  DEBUG_PRINT(leftPWM);
+  DEBUG_PRINT(" R=");
+  DEBUG_PRINTLN(rightPWM);
 }
