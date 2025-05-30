@@ -18,6 +18,7 @@ classdef PathFollowingRobot < handle
         LogData
         LogStartTime
         PerformanceFigure
+        LastValidPosition = [0, 0] % Store last valid position
     end
     
     methods
@@ -27,10 +28,11 @@ classdef PathFollowingRobot < handle
             configureTerminator(obj.SerialPort, "LF");
             flush(obj.SerialPort);
             
-            % Load waypoints
+            % Load waypoints (example coordinates)
             obj.Waypoints = [
-            7.214782, 124.248421;
-            7.214721, 124.248377;
+                7.214721, 124.248377;
+                7.214782, 124.248421;
+                % Add more waypoints as needed
             ];
             
             obj.CurrentWaypointIndex = 1;
@@ -51,11 +53,9 @@ classdef PathFollowingRobot < handle
         end
         
         function initializeLogging(obj)
-            % Create a timestamped log file
             timestamp = datestr(now, 'yyyy-mm-dd_HH-MM-SS');
             obj.LogFile = sprintf('robot_performance_%s.csv', timestamp);
             
-            % Initialize log data structure
             obj.LogData = table('Size', [0, 13], ...
                 'VariableTypes', {'datetime', 'double', 'double', 'double', 'double', ...
                                 'double', 'double', 'double', 'double', 'double', 'double', ...
@@ -78,13 +78,11 @@ classdef PathFollowingRobot < handle
         function logData(obj, timestamp, lat, lon, speed, heading, ...
                         targetLat, targetLon, crossTrackError, headingError, ...
                         distance, leftPWM, rightPWM, pathBearing)
-            % Add data to in-memory table
             newRow = {timestamp, lat, lon, speed, heading, ...
                      targetLat, targetLon, crossTrackError, headingError, ...
                      distance, leftPWM, rightPWM, pathBearing};
             obj.LogData = [obj.LogData; newRow];
             
-            % Append to CSV file
             fid = fopen(obj.LogFile, 'a');
             fprintf(fid, '%s,%.8f,%.8f,%.2f,%.2f,%.8f,%.8f,%.2f,%.2f,%.2f,%d,%d,%.2f\n', ...
                 datestr(timestamp, 'yyyy-mm-dd HH:MM:SS.FFF'), ...
@@ -94,96 +92,7 @@ classdef PathFollowingRobot < handle
             fclose(fid);
         end
         
-        function plotPerformance(obj)
-            if height(obj.LogData) < 2
-                disp('Not enough data to plot performance');
-                return;
-            end
-            
-            % Create performance figure if it doesn't exist
-            if isempty(obj.PerformanceFigure) || ~isvalid(obj.PerformanceFigure)
-                obj.PerformanceFigure = figure('Name', 'Performance Analysis', 'NumberTitle', 'off');
-            else
-                figure(obj.PerformanceFigure);
-                clf;
-            end
-            
-            % Calculate elapsed time in seconds
-            elapsedTime = seconds(obj.LogData.Timestamp - obj.LogData.Timestamp(1));
-            
-            % Plot 1: Cross-track and Heading errors
-            subplot(3,2,[1,3]);
-            yyaxis left;
-            plot(elapsedTime, obj.LogData.CrossTrackError, 'r-', 'DisplayName', 'Cross-track Error (m)');
-            ylabel('Cross-track Error (m)');
-            
-            yyaxis right;
-            plot(elapsedTime, obj.LogData.HeadingError, 'b-', 'DisplayName', 'Heading Error (deg)');
-            ylabel('Heading Error (deg)');
-            xlabel('Elapsed Time (s)');
-            title('Navigation Errors');
-            legend;
-            grid on;
-            
-            % Plot 2: Distance to Target
-            subplot(3,2,2);
-            plot(elapsedTime, obj.LogData.DistanceToTarget, 'm-');
-            ylabel('Distance (m)');
-            title('Distance to Target');
-            grid on;
-            
-            % Plot 3: Motor Commands
-            subplot(3,2,4);
-            plot(elapsedTime, obj.LogData.LeftPWM, 'b-', 'DisplayName', 'Left PWM');
-            hold on;
-            plot(elapsedTime, obj.LogData.RightPWM, 'r-', 'DisplayName', 'Right PWM');
-            ylabel('PWM Value');
-            title('Motor Commands');
-            legend;
-            grid on;
-            
-            % Plot 4: Heading vs Path Bearing
-            subplot(3,2,6);
-            plot(elapsedTime, obj.LogData.Heading, 'b-', 'DisplayName', 'Robot Heading');
-            hold on;
-            plot(elapsedTime, obj.LogData.PathBearing, 'r-', 'DisplayName', 'Path Bearing');
-            ylabel('Degrees');
-            xlabel('Elapsed Time (s)');
-            title('Heading vs Path Bearing');
-            legend;
-            grid on;
-            
-            % Calculate metrics
-            totalTime = elapsedTime(end);
-            avgSpeed = mean(obj.LogData.Speed);
-            maxSpeed = max(obj.LogData.Speed);
-            
-            % Calculate distance traveled (approximate)
-            latDiff = diff(obj.LogData.Latitude) * 111320; % meters per degree
-            lonDiff = diff(obj.LogData.Longitude) * 111320 * cosd(mean(obj.LogData.Latitude));
-            distanceTraveled = sum(sqrt(latDiff.^2 + lonDiff.^2));
-            
-            % Calculate performance metrics
-            avgCrossTrackError = mean(abs(obj.LogData.CrossTrackError));
-            maxCrossTrackError = max(abs(obj.LogData.CrossTrackError));
-            avgHeadingError = mean(abs(obj.LogData.HeadingError));
-            
-            % Display metrics
-            annotation('textbox', [0.15, 0.85, 0.7, 0.1], 'String', ...
-                sprintf(['Total Time: %.1f s | Distance Traveled: %.1f m\n', ...
-                        'Avg Speed: %.2f m/s | Max Speed: %.2f m/s\n', ...
-                        'Avg Cross-track Error: %.2f m | Max: %.2f m\n', ...
-                        'Avg Heading Error: %.1f°'], ...
-                totalTime, distanceTraveled, avgSpeed, maxSpeed, ...
-                avgCrossTrackError, maxCrossTrackError, avgHeadingError), ...
-                'EdgeColor', 'none', 'FontSize', 10, 'BackgroundColor', 'white');
-            
-            % Save performance plot
-            saveas(obj.PerformanceFigure, strrep(obj.LogFile, '.csv', '_performance.png'));
-        end
-        
         function initializeFuzzySystem(obj)
-            % Create new FIS
             fis = mamfis('Name', 'path_following');
             
             % Input 1: Cross-track error (meters)
@@ -227,18 +136,6 @@ classdef PathFollowingRobot < handle
             
             fis = addRule(fis, ruleList);
             obj.FuzzySystem = fis;
-            
-            % Plot membership functions
-            mfFig = figure('Name', 'Fuzzy Membership Functions', 'NumberTitle', 'off');
-            subplot(2,2,1); plotmf(fis, 'input', 1); title('Cross-track Error');
-            subplot(2,2,2); plotmf(fis, 'input', 2); title('Heading Error');
-            subplot(2,2,3); plotmf(fis, 'output', 1); title('PWM Left');
-            subplot(2,2,4); plotmf(fis, 'output', 2); title('PWM Right');
-            
-            % Plot rule surfaces
-            surfFig = figure('Name', 'Control Surfaces', 'NumberTitle', 'off');
-            subplot(1,2,1); gensurf(fis, [1 2], 1); title('Cross-track & Heading → PWM Left');
-            subplot(1,2,2); gensurf(fis, [1 2], 2); title('Cross-track & Heading → PWM Right');
         end
         
         function initializeMap(obj)
@@ -258,13 +155,7 @@ classdef PathFollowingRobot < handle
             drawnow;
         end
         
-        function [lat, lon] = convertToNumeric(~, waypoints)
-            lat = waypoints(:,1);
-            lon = waypoints(:,2);
-        end
-        
         function updateMap(obj, currentLat, currentLon)
-            % Update path plot
             xData = obj.PathPlot.LatitudeData;
             yData = obj.PathPlot.LongitudeData;
             
@@ -272,46 +163,37 @@ classdef PathFollowingRobot < handle
             obj.PathPlot.LongitudeData = [yData, currentLon];
             obj.PositionHistory = [obj.PositionHistory; currentLat, currentLon];
             
-            % Update robot position
             obj.RobotPlot.LatitudeData = currentLat;
             obj.RobotPlot.LongitudeData = currentLon;
             
-            % Highlight current target
             targetLat = obj.Waypoints(obj.CurrentWaypointIndex, 1);
             targetLon = obj.Waypoints(obj.CurrentWaypointIndex, 2);
             geoscatter(targetLat, targetLon, 100, 'filled', 'MarkerFaceColor', 'yellow', 'DisplayName', 'Current Target');
             
-            % Adjust view
             latLim = [min([currentLat; obj.Waypoints(:,1)])-0.0001, max([currentLat; obj.Waypoints(:,1)])+0.0001];
             lonLim = [min([currentLon; obj.Waypoints(:,2)])-0.0001, max([currentLon; obj.Waypoints(:,2)])+0.0001];
             geolimits(latLim, lonLim);
             
-            % Update legend
             legend('Planned Path', 'Waypoints', 'Robot Path', 'Robot', 'Current Target');
             
             drawnow;
         end
         
         function [crossTrackError, headingError, pathBearing] = calculateErrors(obj, currentLat, currentLon, currentHeading)
-            % Get current and next waypoints
             currentTarget = obj.Waypoints(obj.CurrentWaypointIndex, :);
             
             if obj.CurrentWaypointIndex < size(obj.Waypoints, 1)
                 nextTarget = obj.Waypoints(obj.CurrentWaypointIndex+1, :);
                 pathBearing = obj.calculateBearing(currentTarget(1), currentTarget(2), nextTarget(1), nextTarget(2));
             else
-                pathBearing = currentHeading; % For final waypoint, just maintain heading
+                pathBearing = currentHeading;
             end
             
-            % Calculate bearing to current target
             bearingToTarget = obj.calculateBearing(currentLat, currentLon, currentTarget(1), currentTarget(2));
-            
-            % Calculate cross-track error (perpendicular distance to path line)
             distanceToTarget = obj.calculateDistance(currentLat, currentLon, currentTarget(1), currentTarget(2));
             angleDiff = obj.wrapTo180(bearingToTarget - pathBearing);
-            crossTrackError = distanceToTarget * sind(angleDiff); % Positive = right of path
+            crossTrackError = distanceToTarget * sind(angleDiff);
             
-            % Calculate heading error relative to path
             headingError = obj.wrapTo180(pathBearing - currentHeading);
         end
         
@@ -323,140 +205,91 @@ classdef PathFollowingRobot < handle
         function stop(obj)
             obj.Running = false;
             writeline(obj.SerialPort, "CMD:0,0");
-            
-            % Plot performance when stopping
             obj.plotPerformance();
-            
-            % Save final map
             saveas(obj.MapFigure, strrep(obj.LogFile, '.csv', '_map.png'));
         end
         
-function run(obj)
-    while obj.Running
-        try
-            if obj.SerialPort.NumBytesAvailable > 0
-                data = readline(obj.SerialPort);
-                
-                if startsWith(data, "GPS:LOST")
-                    disp('GPS signal lost!');
-                    % Emergency stop if GPS is lost
-                    writeline(obj.SerialPort, "CMD:0,0");
-                    continue;
-                end
-                
-                if startsWith(data, "GPS:")
-                    try
-                        gpsData = sscanf(data, "GPS:%f,%f,%f,%f");
-                        if length(gpsData) == 4
-                            % Check for invalid GPS data (0,0 is common for invalid data)
-                            if abs(gpsData(1)) < 0.000001 && abs(gpsData(2)) < 0.000001
-                                error('Invalid GPS coordinates');
+        function run(obj)
+            while obj.Running
+                if obj.SerialPort.NumBytesAvailable > 0
+                    data = readline(obj.SerialPort);
+                    
+                    if startsWith(data, "GPS:")
+                        try
+                            if strcmp(data, "GPS:INVALID") || strcmp(data, "GPS:LOST")
+                                fprintf('Invalid GPS data received\n');
+                                continue;
                             end
                             
-                            currentLat = gpsData(1);
-                            currentLon = gpsData(2);
-                            speed = gpsData(3);
-                            heading = gpsData(4);
-                            timestamp = datetime('now');
-                            
-                            % Only update map at reasonable intervals to reduce CPU load
-                            if seconds(timestamp - obj.LastPositionTime) > 0.5
-                                obj.updateMap(currentLat, currentLon);
-                                obj.LastPositionTime = timestamp;
-                            end
-                            
-                            % Get current target waypoint
-                            target = obj.Waypoints(obj.CurrentWaypointIndex, :);
-                            targetLat = target(1);
-                            targetLon = target(2);
-                            
-                            % Calculate distance to target
-                            distance = obj.calculateDistance(currentLat, currentLon, targetLat, targetLon);
-                            
-                            % Calculate navigation errors
-                            [crossTrackError, headingError, pathBearing] = ...
-                                obj.calculateErrors(currentLat, currentLon, heading);
-                            
-                            % Fuzzy logic control with distance-based speed scaling
-                            inputs = [crossTrackError, headingError];
-                            outputs = evalfis(obj.FuzzySystem, inputs);
-                            
-                            % Dynamic speed adjustment based on distance to target
-                            if distance < obj.PositionThreshold * 2
-                                % When getting close, reduce speed
-                                distanceFactor = min(1, distance / (obj.PositionThreshold * 2));
-                                speedFactor = 0.5 + (distanceFactor * 0.5); % Range 0.5-1.0
-                            else
-                                speedFactor = 1.0;
-                            end
-                            
-                            leftPWM = round(outputs(1) * speedFactor);
-                            rightPWM = round(outputs(2) * speedFactor);
-                            
-                            % Constrain PWM values and apply deadzone
-                            pwmDeadzone = 20; % Minimum PWM value to overcome friction
-                            leftPWM = sign(leftPWM) * max(abs(leftPWM), (abs(leftPWM) > 0) * pwmDeadzone);
-                            rightPWM = sign(rightPWM) * max(abs(rightPWM), (abs(rightPWM) > 0) * pwmDeadzone);
-                            leftPWM = max(-255, min(255, leftPWM));
-                            rightPWM = max(-255, min(255, rightPWM));
-                            
-                            % Log the data
-                            obj.logData(timestamp, currentLat, currentLon, speed, heading, ...
-                                       targetLat, targetLon, crossTrackError, headingError, ...
-                                       distance, leftPWM, rightPWM, pathBearing);
-                            
-                            % Check if reached waypoint
-                            if distance < obj.PositionThreshold
-                                % Move to next waypoint if not at the end
-                                if obj.CurrentWaypointIndex < size(obj.Waypoints, 1)
-                                    obj.CurrentWaypointIndex = obj.CurrentWaypointIndex + 1;
-                                    fprintf('Reached waypoint %d, moving to waypoint %d\n', ...
-                                        obj.CurrentWaypointIndex-1, obj.CurrentWaypointIndex);
-                                    
-                                    % Brief pause at waypoint
-                                    writeline(obj.SerialPort, "CMD:0,0");
-                                    pause(0.5);
-                                else
-                                    obj.stop();
-                                    disp('Final waypoint reached!');
-                                    return;
+                            gpsData = sscanf(data, "GPS:%f,%f,%f,%f");
+                            if length(gpsData) == 4
+                                currentLat = gpsData(1);
+                                currentLon = gpsData(2);
+                                speed = gpsData(3);
+                                heading = gpsData(4);
+                                timestamp = datetime('now');
+                                
+                                if currentLat == 0 && currentLon == 0
+                                    fprintf('Invalid GPS position (0,0)\n');
+                                    continue;
                                 end
+                                
+                                obj.LastValidPosition = [currentLat, currentLon];
+                                obj.updateMap(currentLat, currentLon);
+                                
+                                target = obj.Waypoints(obj.CurrentWaypointIndex, :);
+                                targetLat = target(1);
+                                targetLon = target(2);
+                                distance = obj.calculateDistance(currentLat, currentLon, targetLat, targetLon);
+                                
+                                [crossTrackError, headingError, pathBearing] = ...
+                                    obj.calculateErrors(currentLat, currentLon, heading);
+                                
+                                boundedCrossTrack = max(-10, min(10, crossTrackError));
+                                inputs = [boundedCrossTrack, headingError];
+                                outputs = evalfis(obj.FuzzySystem, inputs);
+                                
+                                distanceFactor = min(1, distance / obj.PositionThreshold);
+                                leftPWM = round(outputs(1) * distanceFactor);
+                                rightPWM = round(outputs(2) * distanceFactor);
+                                
+                                leftPWM = max(-255, min(255, leftPWM));
+                                rightPWM = max(-255, min(255, rightPWM));
+                                
+                                obj.logData(timestamp, currentLat, currentLon, speed, heading, ...
+                                           targetLat, targetLon, crossTrackError, headingError, ...
+                                           distance, leftPWM, rightPWM, pathBearing);
+                                
+                                if distance < obj.PositionThreshold
+                                    if obj.CurrentWaypointIndex < size(obj.Waypoints, 1)
+                                        obj.CurrentWaypointIndex = obj.CurrentWaypointIndex + 1;
+                                        fprintf('Reached waypoint %d, moving to waypoint %d\n', ...
+                                            obj.CurrentWaypointIndex-1, obj.CurrentWaypointIndex);
+                                    else
+                                        obj.stop();
+                                        disp('Final waypoint reached!');
+                                        return;
+                                    end
+                                end
+                                
+                                cmdStr = sprintf("CMD:%d,%d", leftPWM, rightPWM);
+                                writeline(obj.SerialPort, cmdStr);
+                                
+                                fprintf('Position: (%.6f, %.6f) | Target: (%.6f, %.6f)\n', ...
+                                    currentLat, currentLon, targetLat, targetLon);
+                                fprintf('Cross-track: %.2fm | Heading: %.1f° (Error: %.1f°) | Path Bearing: %.1f°\n', ...
+                                    crossTrackError, heading, headingError, pathBearing);
+                                fprintf('Outputs: L=%d, R=%d | Distance: %.2fm\n\n', ...
+                                    leftPWM, rightPWM, distance);
                             end
-                            
-                            % Send motor commands
-                            cmdStr = sprintf("CMD:%d,%d", leftPWM, rightPWM);
-                            writeline(obj.SerialPort, cmdStr);
-                            
-                            % Debug output
-                            fprintf('Position: (%.6f, %.6f) | Target: (%.6f, %.6f)\n', ...
-                                currentLat, currentLon, targetLat, targetLon);
-                            fprintf('Cross-track: %.2fm | Heading: %.1f° (Error: %.1f°) | Path Bearing: %.1f°\n', ...
-                                crossTrackError, heading, headingError, pathBearing);
-                            fprintf('Outputs: L=%d, R=%d | Distance: %.2fm\n\n', ...
-                                leftPWM, rightPWM, distance);
+                        catch ME
+                            fprintf('Error processing GPS data: %s\n', ME.message);
                         end
-                    catch ME
-                        fprintf('Error processing GPS data: %s\n', ME.message);
-                        % Send stop command if data is invalid
-                        writeline(obj.SerialPort, "CMD:0,0");
                     end
                 end
+                pause(0.1);
             end
-            
-            % Check for timeout (e.g., if robot stops responding)
-            if seconds(datetime('now') - obj.LastPositionTime) > 5
-                error('Robot communication timeout');
-            end
-            
-            pause(0.1);
-            
-        catch ME
-            fprintf('Error in main loop: %s\n', ME.message);
-            obj.stop();
-            rethrow(ME);
         end
-    end
-end
         
         function distance = calculateDistance(~, lat1, lon1, lat2, lon2)
             R = 6371000; % Earth radius in meters
@@ -483,6 +316,98 @@ end
         function angle = wrapTo180(~, angle)
             angle = mod(angle + 180, 360) - 180;
         end
+        
+        function [lat, lon] = convertToNumeric(~, waypoints)
+            lat = waypoints(:,1);
+            lon = waypoints(:,2);
+        end
+        
+     function plotPerformance(obj)
+    if height(obj.LogData) < 2
+        disp('Not enough data to plot performance');
+        return;
+    end
+    
+    if isempty(obj.PerformanceFigure) || ~isvalid(obj.PerformanceFigure)
+        obj.PerformanceFigure = figure('Name', 'Performance Analysis', 'NumberTitle', 'off');
+    else
+        figure(obj.PerformanceFigure);
+        clf;
+    end
+    
+    elapsedTime = seconds(obj.LogData.Timestamp - obj.LogData.Timestamp(1));
+    
+    % Plot 1: Cross-track and Heading errors
+    subplot(4,2,[1,3]);
+    yyaxis left;
+    plot(elapsedTime, obj.LogData.CrossTrackError, 'r-', 'DisplayName', 'Cross-track Error (m)');
+    ylabel('Cross-track Error (m)');
+    
+    yyaxis right;
+    plot(elapsedTime, obj.LogData.HeadingError, 'b-', 'DisplayName', 'Heading Error (deg)');
+    ylabel('Heading Error (deg)');
+    title('Navigation Errors');
+    legend;
+    grid on;
+    
+    % Plot 2: Distance to Target
+    subplot(4,2,2);
+    plot(elapsedTime, obj.LogData.DistanceToTarget, 'm-');
+    ylabel('Distance (m)');
+    title('Distance to Target');
+    grid on;
+    
+    % Plot 3: Motor Commands
+    subplot(4,2,4);
+    plot(elapsedTime, obj.LogData.LeftPWM, 'b-', 'DisplayName', 'Left PWM');
+    hold on;
+    plot(elapsedTime, obj.LogData.RightPWM, 'r-', 'DisplayName', 'Right PWM');
+    ylabel('PWM Value');
+    title('Motor Commands');
+    legend;
+    grid on;
+    
+    % Plot 4: Heading vs Path Bearing
+    subplot(4,2,[5,7]);
+    plot(elapsedTime, obj.LogData.Heading, 'b-', 'DisplayName', 'Robot Heading');
+    hold on;
+    plot(elapsedTime, obj.LogData.PathBearing, 'r-', 'DisplayName', 'Path Bearing');
+    ylabel('Degrees');
+    xlabel('Elapsed Time (s)');
+    title('Heading vs Path Bearing');
+    legend;
+    grid on;
+    
+    % Calculate metrics
+    totalTime = elapsedTime(end);
+    avgSpeed = mean(obj.LogData.Speed);
+    maxSpeed = max(obj.LogData.Speed);
+    
+    latDiff = diff(obj.LogData.Latitude) * 111320;
+    lonDiff = diff(obj.LogData.Longitude) * 111320 * cosd(mean(obj.LogData.Latitude));
+    distanceTraveled = sum(sqrt(latDiff.^2 + lonDiff.^2));
+    
+    avgCrossTrackError = mean(abs(obj.LogData.CrossTrackError));
+    maxCrossTrackError = max(abs(obj.LogData.CrossTrackError));
+    avgHeadingError = mean(abs(obj.LogData.HeadingError));
+    
+    % Create a subplot for the metrics text
+    subplot(4,2,[6,8]);
+    axis off;
+    text(0, 0.5, ...
+        sprintf(['Total Time: %.1f s\n', ...
+                'Distance Traveled: %.1f m\n', ...
+                'Avg Speed: %.2f m/s\n', ...
+                'Max Speed: %.2f m/s\n', ...
+                'Avg Cross-track Error: %.2f m\n', ...
+                'Max Cross-track Error: %.2f m\n', ...
+                'Avg Heading Error: %.1f°'], ...
+        totalTime, distanceTraveled, avgSpeed, maxSpeed, ...
+        avgCrossTrackError, maxCrossTrackError, avgHeadingError), ...
+        'FontSize', 10);
+    
+    saveas(obj.PerformanceFigure, strrep(obj.LogFile, '.csv', '_performance.png'));
+end
         
         function delete(obj)
             if obj.Running
